@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { MapPin, Clock, Image, MessageSquare, UserCheck } from 'lucide-react'
+import { MapPin, Clock, MessageSquare, UserCheck } from 'lucide-react'
+import Image from 'next/image'
 
 const gradientColors = [
   'from-red-400 to-pink-600',
@@ -85,7 +86,7 @@ export function InvitacionDigitalComponent() {
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [])
+  }, [eventDate])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -137,11 +138,12 @@ export function InvitacionDigitalComponent() {
 
         <div className="relative w-full h-[20vh] mb-4">
           {['/img1.webp', '/img2.webp', '/img3.webp'].map((src, index) => (
-            <img
+            <Image
               key={index}
               src={src}
-              alt={`Imagen ${index + 1}`}
-              className={`absolute top-0 left-0 w-full h-full object-cover rounded-lg shadow-lg transition-opacity duration-500 ${
+              alt={`Imagen de celebración ${index + 1}`}
+              fill
+              className={`object-cover rounded-lg shadow-lg transition-opacity duration-500 ${
                 index === currentSlide ? 'opacity-100' : 'opacity-0'
               }`}
             />
@@ -156,8 +158,8 @@ export function InvitacionDigitalComponent() {
           <div className="mb-6">
             <div ref={carouselRef} className="overflow-x-hidden whitespace-nowrap">
               <div className="inline-flex gap-4" style={{ width: `${messages.length * 272}px` }}>
-                {[...messages, ...messages, ...messages].map((message, index) => (
-                  <MessageCard key={`${message.id}-${index}`} message={message} onClick={() => handleMessageClick(message)} />
+                {messages.map((message) => (
+                  <MessageCard key={message.id} message={message} onClick={() => handleMessageClick(message)} />
                 ))}
               </div>
             </div>
@@ -284,7 +286,7 @@ export function InvitacionDigitalComponent() {
                 {isRsvpActive ? (
                   <>
                     <Input id="name" placeholder="Nombre del invitado" />
-                    <Input id="guests" type="number" placeholder="Número de personas" />
+                    <Input id="guests" type="number" placeholder="Nmero de personas" />
                     <Textarea placeholder="Nota adicional" />
                     <Button type="submit">Confirmar asistencia</Button>
                   </>
