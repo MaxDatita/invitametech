@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { MapPin, Clock, MessageSquare, UserCheck } from 'lucide-react'
+import { MapPin, Clock, MessageSquare, UserCheck, Image as ImageIcon } from 'lucide-react'
 import Image from 'next/image'
 
 const gradientColors = [
@@ -19,12 +19,12 @@ const gradientColors = [
   'from-purple-400 to-pink-600',
 ]
 
-const getConsistentGradient = (name) => {
+const getConsistentGradient = (name: string) => {
   const hash = name.split('').reduce((acc, char) => char.charCodeAt(0) + acc, 0)
   return gradientColors[hash % gradientColors.length]
 }
 
-const InitialsCircle = ({ name }) => {
+const InitialsCircle = ({ name }: { name: string }) => {
   const initials = name ? name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : ''
   const gradient = getConsistentGradient(name)
   
@@ -35,7 +35,16 @@ const InitialsCircle = ({ name }) => {
   )
 }
 
-const MessageCard = ({ message, onClick }) => {
+interface MessageCardProps {
+  message: {
+    id: number;
+    name: string;
+    text: string;
+  };
+  onClick: () => void;
+}
+
+const MessageCard: React.FC<MessageCardProps> = ({ message, onClick }) => {
   return (
     <div className="w-64 p-4 bg-white rounded-lg shadow-md cursor-pointer flex-shrink-0" onClick={onClick}>
       <div className="flex items-center mb-2">
@@ -47,17 +56,25 @@ const MessageCard = ({ message, onClick }) => {
   )
 }
 
+interface Message {
+  id: number;
+  name: string;
+  text: string;
+}
+
 export function InvitacionDigitalComponent() {
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 })
   const [currentSlide, setCurrentSlide] = useState(0)
   const [currentDate, setCurrentDate] = useState(new Date())
   const [eventStarted, setEventStarted] = useState(false)
-  const [selectedMessage, setSelectedMessage] = useState(null)
-  const carouselRef = useRef(null)
+  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
+  const carouselRef = useRef<HTMLDivElement>(null)
 
-  const eventDate = new Date('2024-10-31T00:00:00')
-  const contentActivationDate = new Date('2024-12-01T00:00:00')
-  const rsvpDeadline = new Date('2024-12-15T00:00:00')
+  const eventDate = useMemo(() => {
+    return new Date('2024-04-20T19:00:00'); //Fecha de celebración
+  }, []);
+  const contentActivationDate = new Date('2024-10-01T00:00:00') //Fecha de activación del contenido
+  const rsvpDeadline = new Date('2024-12-15T00:00:00') //Fecha de cierre de asistencia
 
   const messages = [
     { id: 1, name: 'Ana García', text: 'Felicidades en tu día especial. Que sea un día lleno de alegría y buenos momentos.' },
@@ -101,6 +118,7 @@ export function InvitacionDigitalComponent() {
       let scrollPosition = 0
 
       const scroll = () => {
+        if (!carouselRef.current) return;
         scrollPosition += 1
         if (scrollPosition >= scrollWidth) {
           scrollPosition = 0
@@ -116,7 +134,7 @@ export function InvitacionDigitalComponent() {
   const isContentActive = currentDate >= contentActivationDate
   const isRsvpActive = currentDate < rsvpDeadline
 
-  const handleMessageClick = useCallback((message) => {
+  const handleMessageClick = useCallback((message: { id: number; name: string; text: string }) => {
     setSelectedMessage(message)
   }, [])
 
@@ -163,7 +181,7 @@ export function InvitacionDigitalComponent() {
                 ))}
               </div>
             </div>
-            <Button variant="outline" className="mt-4 w-full" onClick={() => setSelectedMessage({ name: 'Todos los mensajes', text: '' })}>
+            <Button variant="outline" className="mt-4 w-full" onClick={() => setSelectedMessage({ id: 0, name: 'Todos los mensajes', text: '' })}>
               Ver todos los mensajes
             </Button>
           </div>
@@ -227,7 +245,7 @@ export function InvitacionDigitalComponent() {
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="outline" className="flex items-center justify-center">
-                <Image className="mr-2 h-4 w-4" /> Contenido
+                <ImageIcon className="mr-2 h-4 w-4" /> Contenido
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
