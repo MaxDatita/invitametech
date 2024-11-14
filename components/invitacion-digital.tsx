@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { MapPin, Clock, MessageSquare, UserCheck, Image as ImageIcon } from 'lucide-react'
 import Image from 'next/image'
+import { useQuery } from '@tanstack/react-query';
 
 const gradientColors = [
   'from-red-400 to-pink-600',
@@ -20,8 +21,10 @@ const gradientColors = [
 ]
 
 const getConsistentGradient = (name: string) => {
-  const hash = name.split('').reduce((acc, char) => char.charCodeAt(0) + acc, 0)
-  return gradientColors[hash % gradientColors.length]
+  if (!name) return gradientColors[0];
+  
+  const hash = name.split('').reduce((acc, char) => char.charCodeAt(0) + acc, 0);
+  return gradientColors[hash % gradientColors.length];
 }
 
 const InitialsCircle = ({ name }: { name: string }) => {
@@ -38,8 +41,8 @@ const InitialsCircle = ({ name }: { name: string }) => {
 interface MessageCardProps {
   message: {
     id: number;
-    name: string;
-    text: string;
+    nombre: string;
+    mensaje: string;
   };
   onClick: () => void;
 }
@@ -48,18 +51,23 @@ const MessageCard: React.FC<MessageCardProps> = ({ message, onClick }) => {
   return (
     <div className="w-64 p-4 bg-white rounded-lg shadow-md cursor-pointer flex-shrink-0" onClick={onClick}>
       <div className="flex items-center mb-2">
-        <InitialsCircle name={message.name} />
-        <span className="font-semibold">{message.name}</span>
+        <div className="flex-shrink-0">
+          <InitialsCircle name={message.nombre} />
+        </div>
+        <span className="font-semibold truncate overflow-hidden flex-1">
+          {message.nombre}
+        </span>
       </div>
-      <p className="text-sm line-clamp-2 h-12 overflow-hidden">{message.text}</p>
+      <p className="text-sm line-clamp-2 leading-normal whitespace-normal break-words">
+        {message.mensaje}
+      </p>
     </div>
   )
 }
 
-interface Message {
-  id: number;
-  name: string;
-  text: string;
+interface ApiMessage {
+  nombre: string;
+  mensaje: string;
 }
 
 export function InvitacionDigitalComponent() {
@@ -67,8 +75,14 @@ export function InvitacionDigitalComponent() {
   const [currentSlide, setCurrentSlide] = useState(0)
   const [currentDate, setCurrentDate] = useState(new Date())
   const [eventStarted, setEventStarted] = useState(false)
-  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
+  const [selectedMessage, setSelectedMessage] = useState<ApiMessage | null>(null)
   const carouselRef = useRef<HTMLDivElement>(null)
+  const [newMessage, setNewMessage] = useState({
+    nombre: '',
+    mensaje: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
 
   const eventDate = useMemo(() => {
     return new Date('2024-04-20T19:00:00'); //Fecha de celebración
@@ -76,13 +90,20 @@ export function InvitacionDigitalComponent() {
   const contentActivationDate = new Date('2024-10-01T00:00:00') //Fecha de activación del contenido
   const rsvpDeadline = new Date('2024-12-15T00:00:00') //Fecha de cierre de asistencia
 
-  const messages = [
-    { id: 1, name: 'Ana García', text: 'Felicidades en tu día especial. Que sea un día lleno de alegría y buenos momentos.' },
-    { id: 2, name: 'Carlos Rodríguez', text: 'Muchas felicidades. Espero que tengas un cumpleaños increíble.' },
-    { id: 3, name: 'María López', text: 'Que cumplas muchos años más. Disfruta tu día al máximo.' },
-    { id: 4, name: 'Juan Pérez', text: '¡Feliz cumpleaños! Que todos tus deseos se hagan realidad.' },
-    { id: 5, name: 'Laura Martínez', text: 'Un año más de sabiduría. ¡Felicidades en tu día!' },
-  ]
+  const { data: messages = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['messages'],
+    queryFn: async () => {
+      const response = await fetch('/api/messages');
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+      const data = await response.json();
+      console.log('Datos recibidos del API:', data);
+      return data;
+    },
+  });
+
+  console.log('Estado de la consulta:', { isLoading, error, messages });
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -134,9 +155,51 @@ export function InvitacionDigitalComponent() {
   const isContentActive = currentDate >= contentActivationDate
   const isRsvpActive = currentDate < rsvpDeadline
 
-  const handleMessageClick = useCallback((message: { id: number; name: string; text: string }) => {
-    setSelectedMessage(message)
+  const handleMessageClick = useCallback((message: { id: number; nombre: string; mensaje: string }) => {
+    setSelectedMessage({
+      nombre: message.nombre,
+      mensaje: message.mensaje
+    })
   }, [])
+
+  const handleSubmitMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.nombre || !newMessage.mensaje) return;
+
+    setIsSubmitting(true);
+    try {
+      const now = new Date();
+      const fecha = now.toLocaleString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fecha,
+          nombre: newMessage.nombre,
+          mensaje: newMessage.mensaje
+        }),
+      });
+
+      if (!response.ok) throw new Error('Error al enviar el mensaje');
+
+      setNewMessage({ nombre: '', mensaje: '' });
+      setIsMessageDialogOpen(false);
+      await refetch();
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-gradient-to-b from-pink-100 to-purple-200 p-4">
@@ -174,16 +237,38 @@ export function InvitacionDigitalComponent() {
 
         {eventStarted ? (
           <div className="mb-6">
-            <div ref={carouselRef} className="overflow-x-hidden whitespace-nowrap">
-              <div className="inline-flex gap-4" style={{ width: `${messages.length * 272}px` }}>
-                {messages.map((message) => (
-                  <MessageCard key={message.id} message={message} onClick={() => handleMessageClick(message)} />
-                ))}
+            {isLoading ? (
+              <div className="flex justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700" />
               </div>
-            </div>
-            <Button variant="outline" className="mt-4 w-full" onClick={() => setSelectedMessage({ id: 0, name: 'Todos los mensajes', text: '' })}>
-              Ver todos los mensajes
-            </Button>
+            ) : error ? (
+              <p>Error al cargar mensajes</p>
+            ) : messages.length === 0 ? (
+              <p>No hay mensajes</p>
+            ) : (
+              <>
+                <div ref={carouselRef} className="overflow-x-hidden whitespace-nowrap">
+                  <div className="inline-flex gap-4" style={{ width: `${messages.length * 272 * 2}px` }}>
+                    {messages.map((message: { id: number; nombre: string; mensaje: string }) => (
+                      <MessageCard key={message.id} message={message} onClick={() => handleMessageClick(message)} />
+                    ))}
+                    {messages.map((message: { id: number; nombre: string; mensaje: string }) => (
+                      <MessageCard key={`duplicate-${message.id}`} message={message} onClick={() => handleMessageClick(message)} />
+                    ))}
+                  </div>
+                </div>
+                <Button 
+                  variant="outline" 
+                  className="mt-4 w-full" 
+                  onClick={() => setSelectedMessage({ 
+                    nombre: 'Todos los mensajes', 
+                    mensaje: '' 
+                  })}
+                >
+                  Ver todos los mensajes
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-4 gap-2 text-center mb-6">
@@ -263,7 +348,7 @@ export function InvitacionDigitalComponent() {
               </div>
             </DialogContent>
           </Dialog>
-          <Dialog>
+          <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="flex items-center justify-center">
                 <MessageSquare className="mr-2 h-4 w-4" /> Mensajes
@@ -273,17 +358,39 @@ export function InvitacionDigitalComponent() {
               <DialogHeader>
                 <DialogTitle>Deja un mensaje</DialogTitle>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
+              <form onSubmit={handleSubmitMessage} className="grid gap-4 py-4">
                 {isContentActive ? (
                   <>
-                    <Input id="name" placeholder="Tu nombre" />
-                    <Textarea placeholder="Tu mensaje" />
-                    <Button type="submit">Enviar mensaje</Button>
+                    <Input 
+                      id="name" 
+                      placeholder="Tu nombre" 
+                      value={newMessage.nombre}
+                      onChange={(e) => setNewMessage(prev => ({
+                        ...prev,
+                        nombre: e.target.value
+                      }))}
+                      required
+                    />
+                    <Textarea 
+                      placeholder="Tu mensaje" 
+                      value={newMessage.mensaje}
+                      onChange={(e) => setNewMessage(prev => ({
+                        ...prev,
+                        mensaje: e.target.value
+                      }))}
+                      required
+                    />
+                    <Button 
+                      type="submit" 
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? 'Enviando...' : 'Enviar mensaje'}
+                    </Button>
                   </>
                 ) : (
                   <p>Podrás dejar mensajes para el agasajado a partir del {contentActivationDate.toLocaleDateString()}.</p>
                 )}
-              </div>
+              </form>
             </DialogContent>
           </Dialog>
           <Dialog>
@@ -321,29 +428,29 @@ export function InvitacionDigitalComponent() {
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle className="flex items-center">
-              {selectedMessage?.name && selectedMessage.name !== 'Todos los mensajes' && (
-                <InitialsCircle name={selectedMessage.name} />
+              {selectedMessage?.nombre && selectedMessage.nombre !== 'Todos los mensajes' && (
+                <InitialsCircle name={selectedMessage.nombre} />
               )}
-              {selectedMessage?.name || 'Mensaje'}
+              {selectedMessage?.nombre || 'Mensaje'}
             </DialogTitle>
           </DialogHeader>
           <div className="py-4">
-            {selectedMessage?.name === 'Todos los mensajes' ? (
+            {selectedMessage?.nombre === 'Todos los mensajes' ? (
               <div className="space-y-4 max-h-[calc(4*5rem)] overflow-y-auto">
-                {messages.map((message, index) => (
-                  <div key={message.id} className="flex items-start p-2 bg-white rounded-lg shadow h-20">
+                {messages.map((message: { id: number; nombre: string; mensaje: string }) => (
+                  <div key={message.id} className="flex items-start p-2 bg-white rounded-lg shadow min-h-[5rem]">
                     <div className="flex-shrink-0">
-                      <InitialsCircle name={message.name} />
+                      <InitialsCircle name={message.nombre} />
                     </div>
                     <div className="ml-3 flex-grow">
-                      <h3 className="font-semibold">{message.name}</h3>
-                      <p className="text-sm">{message.text}</p>
+                      <h3 className="font-semibold">{message.nombre}</h3>
+                      <p className="text-sm whitespace-normal break-words">{message.mensaje}</p>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p>{selectedMessage?.text}</p>
+              <p>{selectedMessage?.mensaje}</p>
             )}
           </div>
         </DialogContent>
