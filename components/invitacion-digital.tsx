@@ -301,9 +301,9 @@ export function InvitacionDigitalComponent() {
   //Comienzo la invitacion digital
   return (
     <div className="min-h-screen pt-6 pb-6 pl-6 pr-6 bg-gradient-animation">
-      <div className="w-full max-w-md mx-auto">
+      <div className="w-full max-w-md mx-auto rounded-xl">
         <video
-          className="w-full h-64 object-cover rounded-lg shadow-lg mb-4"
+          className="w-full h-64 object-cover rounded-lg shadow-lg mb-4 rounded-xl"
           autoPlay
           loop
           muted
@@ -529,7 +529,7 @@ export function InvitacionDigitalComponent() {
                   </>
                 ) : (
                   // DINAMICO:  Frase antes de fecha de activación.
-                  <p>Podrás dejar mensajes para el agasajado a partir del {contentActivationDate.toLocaleDateString()}.</p>
+                  <p>Podrás dejar mensajes para el agasajado más cerca de la fecha del evento.</p>
                 )}
               </form>
             </DialogContent>
