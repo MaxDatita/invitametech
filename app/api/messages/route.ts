@@ -3,15 +3,26 @@ import { NextResponse } from 'next/server';
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const page = parseInt(searchParams.get('page') || '1');
+  const pageSize = parseInt(searchParams.get('pageSize') || '20');
+  const random = searchParams.get('random') === 'true';
+
   try {
-    const messages = await getMessages();
+    const result = await getMessages(page, pageSize, random);
     
-    // Asegurarnos de que devolvemos un objeto plano
-    return NextResponse.json(messages);
+    return NextResponse.json({
+      messages: result.messages,
+      hasMore: result.hasMore,
+      page: page
+    });
   } catch (error) {
-    console.error('Error en GET /api/messages:', error);
-    return NextResponse.json({ messages: [] }, { status: 500 });
+    console.error('Error:', error);
+    return NextResponse.json(
+      { error: 'Error al obtener los mensajes' },
+      { status: 500 }
+    );
   }
 }
 

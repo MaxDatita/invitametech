@@ -2,70 +2,107 @@ import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 
 interface Message {
+  id: number;
   nombre: string;
   mensaje: string;
 }
 
-export async function getMessages(): Promise<Message[]> {
+interface MessagesResponse {
+  messages: Message[];
+  hasMore: boolean;
+  total: number;
+}
+
+interface Invitado {
+  fecha: string;
+  nombre: string;
+  acompanantes: number;
+  nota?: string;
+}
+
+export async function getMessages(
+  page: number = 1, 
+  pageSize: number = 20, 
+  random: boolean = false
+): Promise<MessagesResponse> {
   try {
-    console.log('Iniciando conexión con Google Sheets...');
-    
-    const SCOPES = [
-      'https://www.googleapis.com/auth/spreadsheets.readonly',
-    ];
-
-    // Verificar que tenemos las variables de entorno
-    if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.GOOGLE_SHEET_ID) {
-      console.error('Faltan variables de entorno necesarias');
-      return [];
-    }
-
     const jwt = new JWT({
       email: process.env.GOOGLE_CLIENT_EMAIL,
       key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      scopes: SCOPES,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
-
-    console.log('JWT creado, intentando acceder al documento...');
 
     const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID!, jwt);
     await doc.loadInfo();
-
-    console.log('Documento cargado, buscando hoja "Mensajes"...');
-
+    
     const sheet = doc.sheetsByTitle['Mensajes'];
     if (!sheet) {
-      console.error('No se encontró la hoja "Mensajes"');
-      return [];
+      throw new Error('No se encontró la hoja "Mensajes"');
     }
 
-    console.log('Obteniendo filas...');
-    const rows = await sheet.getRows({
-        offset: 1,
-        limit: 50
-    });
-    console.log('Filas obtenidas:', rows.length);
+    const allRows = await sheet.getRows();
+    const total = allRows.length;
 
-    const messages = rows
-      .map(row => {
-        const nombre = String(row.get('Nombre') || '').trim();
-        const mensaje = String(row.get('Mensaje') || '').trim();
-        console.log('Procesando mensaje:', { nombre, mensaje });
-        
-        if (nombre && mensaje && nombre !== 'ee' && mensaje !== 'red') {
-          return { nombre, mensaje };
-        }
-        return null;
-      })
-      .filter((msg): msg is Message => msg !== null);
+    let rowsToProcess = [...allRows];
+    if (random) {
+      // Mezclar aleatoriamente si se solicita
+      rowsToProcess = rowsToProcess.sort(() => Math.random() - 0.5);
+    } else {
+      // Ordenar por fecha descendente si no es aleatorio
+      rowsToProcess = rowsToProcess.reverse();
+    }
 
-    console.log('Mensajes procesados:', messages.length);
-    console.log('Mensajes finales:', messages);
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    const paginatedRows = rowsToProcess.slice(start, end);
 
-    return messages;
+    const messages = paginatedRows
+      .map((row, index) => ({
+        id: start + index,
+        nombre: row.get('Nombre'),
+        mensaje: row.get('Mensaje')
+      }))
+      .filter(msg => msg.nombre && msg.mensaje);
 
+    return {
+      messages,
+      hasMore: end < total,
+      total
+    };
   } catch (error) {
-    console.error('Error detallado en getMessages:', error);
-    return [];
+    console.error('Error en getMessages:', error);
+    return { messages: [], hasMore: false, total: 0 };
+  }
+}
+
+export async function guardarAsistencia(invitado: Invitado): Promise<boolean> {
+  try {
+    const jwt = new JWT({
+      email: process.env.GOOGLE_CLIENT_EMAIL,
+      key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+
+    const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID!, jwt);
+    await doc.loadInfo();
+    
+    const sheet = doc.sheetsByTitle['Invitados'];
+    if (!sheet) {
+      throw new Error('No se encontró la hoja "Invitados"');
+    }
+
+    const cantidadTotal = invitado.acompanantes === 0 ? 1 : invitado.acompanantes + 1;
+
+    await sheet.addRow({
+      'Fecha': invitado.fecha,
+      'Invitado': invitado.nombre,
+      'Cantidad': cantidadTotal,
+      'Nota': invitado.nota || ''
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Error en guardarAsistencia:', error);
+    return false;
   }
 } 

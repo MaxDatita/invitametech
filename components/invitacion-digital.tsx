@@ -5,9 +5,13 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { MapPin, Clock, MessageSquare, UserCheck, Image as ImageIcon } from 'lucide-react'
+import { MapPin, Clock, MessageSquare, MailPlus, UserCheck, Image as ImageIcon } from 'lucide-react'
 import Image from 'next/image'
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { toast } from 'sonner'
+import { theme } from '@/config/theme';
+import { StyledDialog } from "@/components/ui/styled-dialog"
+
 
 const gradientColors = [
   'from-red-400 to-pink-600',
@@ -47,9 +51,13 @@ interface MessageCardProps {
   onClick: () => void;
 }
 
+// Componente para mostrar un mensaje en el carrusel
 const MessageCard: React.FC<MessageCardProps> = ({ message, onClick }) => {
   return (
-    <div className="w-64 p-4 bg-white rounded-lg shadow-md cursor-pointer flex-shrink-0" onClick={onClick}>
+    <div 
+      className="message-card"
+      onClick={onClick}
+    >
       <div className="flex items-center mb-2">
         <div className="flex-shrink-0">
           <InitialsCircle name={message.nombre} />
@@ -58,7 +66,7 @@ const MessageCard: React.FC<MessageCardProps> = ({ message, onClick }) => {
           {message.nombre}
         </span>
       </div>
-      <p className="text-sm line-clamp-2 leading-normal whitespace-normal break-words">
+      <p className="message-card-content">
         {message.mensaje}
       </p>
     </div>
@@ -69,6 +77,13 @@ interface ApiMessage {
   nombre: string;
   mensaje: string;
 }
+
+interface CarouselMessage {
+  id: number;
+  nombre: string;
+  mensaje: string;
+}
+
 
 export function InvitacionDigitalComponent() {
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 })
@@ -83,27 +98,57 @@ export function InvitacionDigitalComponent() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
+  const pageSize = 20;
+  const [asistencia, setAsistencia] = useState({
+    nombre: '',
+    acompanantes: 0,
+    nota: ''
+  });
+  const [isSubmittingAsistencia, setIsSubmittingAsistencia] = useState(false);
+  const [hasConfirmed, setHasConfirmed] = useState(false);
+  const [isAsistenciaDialogOpen, setIsAsistenciaDialogOpen] = useState(false);
+  const [showUpdateButton, setShowUpdateButton] = useState(false);
 
-  const eventDate = useMemo(() => {
-    return new Date('2024-04-20T19:00:00'); //Fecha de celebración
-  }, []);
-  const contentActivationDate = new Date('2024-10-01T00:00:00') //Fecha de activación del contenido
-  const rsvpDeadline = new Date('2024-12-15T00:00:00') //Fecha de cierre de asistencia
+  const eventDate = useMemo(() => new Date(theme.dates.event), []);
+  const contentActivationDate = new Date(theme.dates.contentActivation);
+  const rsvpDeadline = new Date(theme.dates.rsvpDeadline);
 
-  const { data: messages = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['messages'],
+  // Query para el carrusel (aleatoria)
+  const carouselQuery = useQuery({
+    queryKey: ['messages', 'carousel'],
     queryFn: async () => {
-      const response = await fetch('/api/messages');
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-      const data = await response.json();
-      console.log('Datos recibidos del API:', data);
-      return data;
+      const response = await fetch('/api/messages?random=true');
+      if (!response.ok) throw new Error('Network response was not ok');
+      return response.json();
     },
+    refetchInterval: 5 * 60 * 1000, // Refrescar cada 5 minutos
   });
 
-  console.log('Estado de la consulta:', { isLoading, error, messages });
+  // Query para todos los mensajes (paginada)
+  const { 
+    data: allMessagesData, 
+    fetchNextPage, 
+    hasNextPage, 
+    isFetchingNextPage,
+    refetch: refetchAllMessages
+  } = useInfiniteQuery({
+    queryKey: ['messages', 'all'],
+    queryFn: async ({ pageParam = 1 }) => {
+      const response = await fetch(`/api/messages?page=${pageParam}&pageSize=${pageSize}`);
+      if (!response.ok) throw new Error('Network response was not ok');
+      const data = await response.json();
+      return {
+        messages: data.messages,
+        hasMore: data.hasMore,
+        nextPage: pageParam + 1
+      };
+    },
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextPage : undefined,
+    initialPageParam: 1
+  });
+
+  const carouselMessages = carouselQuery.data?.messages || [];
+  const allMessages = allMessagesData?.pages.flatMap(page => page.messages) || [];
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -113,6 +158,7 @@ export function InvitacionDigitalComponent() {
 
       if (difference <= 0) {
         setEventStarted(true)
+        setShowUpdateButton(true)
         clearInterval(interval)
       } else {
         const d = Math.floor(difference / (1000 * 60 * 60 * 24))
@@ -135,7 +181,7 @@ export function InvitacionDigitalComponent() {
 
   useEffect(() => {
     if (eventStarted && carouselRef.current) {
-      const scrollWidth = messages.length * 272
+      const scrollWidth = carouselMessages.length * 272
       let scrollPosition = 0
 
       const scroll = () => {
@@ -150,7 +196,7 @@ export function InvitacionDigitalComponent() {
       const intervalId = setInterval(scroll, 50)
       return () => clearInterval(intervalId)
     }
-  }, [eventStarted, messages.length])
+  }, [eventStarted, carouselMessages.length])
 
   const isContentActive = currentDate >= contentActivationDate
   const isRsvpActive = currentDate < rsvpDeadline
@@ -193,7 +239,8 @@ export function InvitacionDigitalComponent() {
 
       setNewMessage({ nombre: '', mensaje: '' });
       setIsMessageDialogOpen(false);
-      await refetch();
+      await carouselQuery.refetch();
+      await refetchAllMessages();
     } catch (error) {
       console.error('Error:', error);
     } finally {
@@ -201,9 +248,60 @@ export function InvitacionDigitalComponent() {
     }
   };
 
+  const handleSubmitAsistencia = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!asistencia.nombre) return;
+
+    setIsSubmittingAsistencia(true);
+    try {
+      const now = new Date();
+      const fecha = now.toLocaleString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+
+      const response = await fetch('/api/asistencia', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fecha,
+          ...asistencia
+        }),
+      });
+
+      if (!response.ok) throw new Error('Error al confirmar asistencia');
+
+      toast.success('¡Gracias por confirmar tu asistencia!');
+      setAsistencia({ nombre: '', acompanantes: 0, nota: '' });
+      setHasConfirmed(true);
+      localStorage.setItem('asistenciaConfirmada', 'true');
+      setIsAsistenciaDialogOpen(false);
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al confirmar asistencia');
+    } finally {
+      setIsSubmittingAsistencia(false);
+    }
+  };
+
+  useEffect(() => {
+    setHasConfirmed(localStorage.getItem('asistenciaConfirmada') === 'true');
+  }, []);
+
+  const handleUpdate = () => {
+    setShowUpdateButton(false);
+    window.location.reload();
+  };
+
+  //Comienzo la invitacion digital
   return (
-    <div className="flex flex-col items-center min-h-screen bg-gradient-to-b from-pink-100 to-purple-200 p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen pt-6 pb-6 pl-6 pr-6 bg-gradient-animation">
+      <div className="w-full max-w-md mx-auto">
         <video
           className="w-full h-64 object-cover rounded-lg shadow-lg mb-4"
           autoPlay
@@ -211,13 +309,15 @@ export function InvitacionDigitalComponent() {
           muted
           playsInline
         >
-          <source src="/vid1.mp4" type="video/mp4" />
+          <source src={theme.resources.images.video} type="video/mp4" />
           Tu navegador no soporta el tag de video.
         </video>
 
-        <h1 className="text-3xl font-bold text-center text-purple-800 mb-4">¡Celebremos Juntos!</h1>
+        <h1 className="heading-h1">
+          Celebremos Juntos
+        </h1>
 
-        <div className="relative w-full h-[20vh] mb-4">
+        <div className="relative w-full h-[50vh] mb-4 rounded-xl overflow-hidden">
           {['/img1.webp', '/img2.webp', '/img3.webp'].map((src, index) => (
             <Image
               key={index}
@@ -231,73 +331,80 @@ export function InvitacionDigitalComponent() {
           ))}
         </div>
 
-        <p className="text-center text-lg mb-4">
-          {eventStarted ? '¡Celebra con nosotros en este día especial!' : 'Te invitamos a celebrar con nosotros este día tan especial'}
+        <p className="heading-h2 mt-4 mb-4">
+          {eventStarted ? 'Celebra con nosotros' : 'Te invitamos a celebrar'}
         </p>
 
         {eventStarted ? (
           <div className="mb-6">
-            {isLoading ? (
+            {carouselQuery.isLoading ? (
               <div className="flex justify-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700" />
               </div>
-            ) : error ? (
-              <p>Error al cargar mensajes</p>
-            ) : messages.length === 0 ? (
-              <p>No hay mensajes</p>
+            ) : carouselQuery.error ? (
+              <p className='text-center mt-12 mb-12'>Error al cargar mensajes</p>
+            ) : carouselMessages.length === 0 ? (
+              <p className='text-center mt-12 mb-12'>Sé el primero en dejar un mensaje</p>
             ) : (
               <>
                 <div ref={carouselRef} className="overflow-x-hidden whitespace-nowrap">
-                  <div className="inline-flex gap-4" style={{ width: `${messages.length * 272 * 2}px` }}>
-                    {messages.map((message: { id: number; nombre: string; mensaje: string }) => (
+                  <div className="inline-flex gap-4" style={{ width: `${carouselMessages.length * 272 * 2}px` }}>
+                    {carouselMessages.map((message: CarouselMessage) => (
                       <MessageCard key={message.id} message={message} onClick={() => handleMessageClick(message)} />
                     ))}
-                    {messages.map((message: { id: number; nombre: string; mensaje: string }) => (
+                    {carouselMessages.map((message: CarouselMessage) => (
                       <MessageCard key={`duplicate-${message.id}`} message={message} onClick={() => handleMessageClick(message)} />
                     ))}
                   </div>
                 </div>
                 <Button 
-                  variant="outline" 
-                  className="mt-4 w-full" 
+                  variant="primary" 
+                  className="flex mt-4 w-full items-center justify-center" 
                   onClick={() => setSelectedMessage({ 
                     nombre: 'Todos los mensajes', 
                     mensaje: '' 
                   })}
                 >
-                  Ver todos los mensajes
+                  <MailPlus className="mr-2 h-4 w-4"/> Ver todos los mensajes
                 </Button>
               </>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-4 gap-2 text-center mb-6">
-            <div>
-              <span className="text-2xl font-bold">{countdown.days}</span>
-              <p className="text-sm">Días</p>
-            </div>
-            <div>
-              <span className="text-2xl font-bold">{countdown.hours}</span>
-              <p className="text-sm">Horas</p>
-            </div>
-            <div>
-              <span className="text-2xl font-bold">{countdown.minutes}</span>
-              <p className="text-sm">Minutos</p>
-            </div>
-            <div>
-              <span className="text-2xl font-bold">{countdown.seconds}</span>
-              <p className="text-sm">Segundos</p>
+          <div>
+            <div className='body-large text-center mb-2 bg-gradient-to-br from-pink-300 via-purple-300 to-indigo-400 text-white p-2 rounded-xl'> Te esperamos este {eventDate.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} a las {eventDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} para pasar una noche inolvidable. </div>
+            <div className='body-base text-center mb-2'> Faltan: </div>
+            <div className="grid grid-cols-4 gap-2 text-center mb-6">
+              <div>
+                <span className="text-2xl font-bold">{countdown.days}</span>
+                <p className="text-sm">Días</p>
+              </div>
+              <div>
+                <span className="text-2xl font-bold">{countdown.hours}</span>
+                <p className="text-sm">Horas</p>
+              </div>
+              <div>
+                <span className="text-2xl font-bold">{countdown.minutes}</span>
+                <p className="text-sm">Minutos</p>
+              </div>
+              <div>
+                <span className="text-2xl font-bold">{countdown.seconds}</span>
+                <p className="text-sm">Segundos</p>
+              </div>
             </div>
           </div>
         )}
 
         <div className="grid grid-cols-2 gap-4">
-          <Button variant="outline" className="flex items-center justify-center">
+          <Button 
+            variant="primary" 
+            className="flex items-center justify-center"
+          >
             <MapPin className="mr-2 h-4 w-4" /> Ubicación
           </Button>
           <Dialog>
             <DialogTrigger asChild>
-              <Button variant="outline" className="flex items-center justify-center">
+              <Button variant="primary" className="flex items-center justify-center">
                 <Clock className="mr-2 h-4 w-4" /> Cronograma
               </Button>
             </DialogTrigger>
@@ -305,52 +412,85 @@ export function InvitacionDigitalComponent() {
               <DialogHeader>
                 <DialogTitle>Cronograma del Evento</DialogTitle>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
+              <div className="py-4">
                 {isContentActive ? (
-                  <>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <span className="font-bold">18:00</span>
-                      <span className="col-span-3">Recepción de invitados</span>
+                  <div className="max-h-[200px] overflow-y-auto pr-2">
+                    <div className="grid gap-4">
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="font-bold">18:00</span>
+                        <span className="col-span-3">Recepción de invitados</span>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="font-bold">19:00</span>
+                        <span className="col-span-3">Comienzo de la ceremonia</span>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="font-bold">20:30</span>
+                        <span className="col-span-3">Catering de recepción</span>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="font-bold">21:30</span>
+                        <span className="col-span-3">Comienzo de cena</span>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="font-bold">0:30</span>
+                        <span className="col-span-3">Balz de compleañera</span>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="font-bold">1:00</span>
+                        <span className="col-span-3">Baile</span>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="font-bold">3:00</span>
+                        <span className="col-span-3">Entrega de velas</span>
+                      </div>
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <span className="font-bold">6:00</span>
+                        <span className="col-span-3">Cierre del evento</span>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <span className="font-bold">19:00</span>
-                      <span className="col-span-3">Cena</span>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <span className="font-bold">20:00</span>
-                      <span className="col-span-3">Baile y celebración</span>
-                    </div>
-                  </>
+                  </div>
                 ) : (
-                  <p>El cronograma del evento estará disponible a partir del {contentActivationDate.toLocaleDateString()}.</p>
+                  // DINAMICO:  Frase antes de fecha de activación.
+                  <p>El cronograma estará disponible más cerca de la fecha del evento.</p>
                 )}
               </div>
             </DialogContent>
           </Dialog>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="flex items-center justify-center">
+          <StyledDialog 
+            title="Contenido del Evento"
+            trigger={
+              <Button 
+                variant="primary" 
+                className="flex items-center justify-center"
+              >
                 <ImageIcon className="mr-2 h-4 w-4" /> Contenido
               </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Contenido del Evento</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                {isContentActive ? (
-                  <a href="https://drive.google.com/drive/folders/your-folder-id" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                    Ver contenido del evento
-                  </a>
-                ) : (
-                  <p>El contenido del evento estará disponible a partir del {contentActivationDate.toLocaleDateString()}.</p>
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
+            }
+          >
+            <div className="grid gap-4">
+              {isContentActive ? (
+                <div className="flex flex-col items-center gap-4">
+                  <p className="text-center">
+                    Mirá todo el contenido multimedia del evento en un solo lugar. Fotos, videos, reels para Instagram y mucho más 🤳🏼📸😉
+                  </p>
+                  <Button
+                    variant="primary"
+                    className="w-full button-with-icon"
+                    onClick={() => window.open(theme.resources.contentLink, "_blank")}
+                  >
+                    <ImageIcon className="button-icon" />
+                    <span>Acceder al contenido</span>
+                  </Button>
+                </div>
+              ) : (
+                <p>El contenido del evento estará disponible más cerca de la fecha del evento. Quedá atento a las actualizaciones ⏳.</p>
+              )}
+            </div>
+          </StyledDialog>
           <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" className="flex items-center justify-center">
+              <Button variant="primary" className="flex items-center justify-center">
                 <MessageSquare className="mr-2 h-4 w-4" /> Mensajes
               </Button>
             </DialogTrigger>
@@ -388,39 +528,82 @@ export function InvitacionDigitalComponent() {
                     </Button>
                   </>
                 ) : (
+                  // DINAMICO:  Frase antes de fecha de activación.
                   <p>Podrás dejar mensajes para el agasajado a partir del {contentActivationDate.toLocaleDateString()}.</p>
                 )}
               </form>
             </DialogContent>
           </Dialog>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button 
-                variant="default" 
-                className="col-span-2 flex items-center justify-center"
-                disabled={!isRsvpActive}
-              >
-                <UserCheck className="mr-2 h-4 w-4" /> Asistiré
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Confirma tu asistencia</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                {isRsvpActive ? (
-                  <>
-                    <Input id="name" placeholder="Nombre del invitado" />
-                    <Input id="guests" type="number" placeholder="Nmero de personas" />
-                    <Textarea placeholder="Nota adicional" />
-                    <Button type="submit">Confirmar asistencia</Button>
-                  </>
-                ) : (
-                  <p>Lo sentimos, el período para confirmar asistencia ha terminado.</p>
-                )}
-              </div>
-            </DialogContent>
-          </Dialog>
+          {isRsvpActive && (
+            <Dialog open={isAsistenciaDialogOpen} onOpenChange={setIsAsistenciaDialogOpen}>
+              <DialogTrigger asChild>
+                <Button 
+                  variant="primary" 
+                  className={`col-span-2 flex items-center justify-center ${
+                    hasConfirmed ? 'bg-gray-400 cursor-not-allowed' : ''
+                  }`}
+                  disabled={hasConfirmed}
+                >
+                  <UserCheck className="mr-2 h-4 w-4" /> 
+                  {hasConfirmed ? 'Asistencia Confirmada' : 'Asistiré'}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Confirma tu asistencia</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmitAsistencia} className="grid gap-4 py-4">
+                  {isRsvpActive ? (
+                    <>
+                      <Input 
+                        id="name" 
+                        placeholder="Nombre del invitado" 
+                        value={asistencia.nombre}
+                        onChange={(e) => setAsistencia(prev => ({
+                          ...prev,
+                          nombre: e.target.value
+                        }))}
+                        required
+                      />
+                      <div className="space-y-2">
+                        <Input 
+                          id="guests" 
+                          type="number" 
+                          placeholder="Cantidad de acompañantes" 
+                          min="0"
+                          value={asistencia.acompanantes}
+                          onChange={(e) => setAsistencia(prev => ({
+                            ...prev,
+                            acompanantes: parseInt(e.target.value) || 0
+                          }))}
+                        />
+                        <p className="text-sm text-gray-500 italic">
+                          Solo complete este campo si asistirá con acompañantes
+                        </p>
+                      </div>
+                      <Textarea 
+                        placeholder="Nota adicional o restriccions " 
+                        value={asistencia.nota}
+                        onChange={(e) => setAsistencia(prev => ({
+                          ...prev,
+                          nota: e.target.value
+                        }))}
+                      />
+                      <Button 
+                        type="submit"
+                        disabled={isSubmittingAsistencia || !asistencia.nombre}
+                      >
+                        {isSubmittingAsistencia ? 'Confirmando...' : 'Confirmar asistencia'}
+                      </Button>
+                    </>
+                  ) : (
+                    // DINAMICO:  Frase antes de fecha de activación.
+                    <p>Lo sentimos, el período para confirmar asistencia ha terminado.</p>
+                  )}
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -436,9 +619,9 @@ export function InvitacionDigitalComponent() {
           </DialogHeader>
           <div className="py-4">
             {selectedMessage?.nombre === 'Todos los mensajes' ? (
-              <div className="space-y-4 max-h-[calc(4*5rem)] overflow-y-auto">
-                {messages.map((message: { id: number; nombre: string; mensaje: string }) => (
-                  <div key={message.id} className="flex items-start p-2 bg-white rounded-lg shadow min-h-[5rem]">
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                {allMessages.map((message) => (
+                  <div key={message.id} className="flex items-start p-2 bg-white rounded-lg shadow">
                     <div className="flex-shrink-0">
                       <InitialsCircle name={message.nombre} />
                     </div>
@@ -448,6 +631,16 @@ export function InvitacionDigitalComponent() {
                     </div>
                   </div>
                 ))}
+                {hasNextPage && (
+                  <Button 
+                    onClick={() => fetchNextPage()} 
+                    variant="primary" 
+                    className="w-full mt-4"
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? 'Cargando más mensajes...' : 'Ver más mensajes'}
+                  </Button>
+                )}
               </div>
             ) : (
               <p>{selectedMessage?.mensaje}</p>
